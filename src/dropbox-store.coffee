@@ -1,16 +1,26 @@
 'use strict'
+detectEnv = require "composite-detect"
 Q = require "q"
 fs = require "fs"
 path = require "path"
 mime = require "mime"
-
 dropbox = require 'dropbox'
 
 StoreBase = require 'usco-kernel/src/stores/storeBase'
 utils = require 'usco-kernel/src/utils'
 merge = utils.merge
-logger = require("usco-kernel/logger")
-logger.level = "debug"
+
+if detectEnv.isModule
+  Minilog=require("minilog")
+  Minilog.pipe(Minilog.suggest).pipe(Minilog.backends.console.formatClean).pipe(Minilog.backends.console)
+  logger = Minilog('dropbox-store')
+
+if detectEnv.isNode
+  Minilog.pipe(Minilog.suggest).pipe(Minilog.backends.console.formatColor).pipe(Minilog.backends.console)
+
+if detectEnv.isBrowser
+  Minilog.pipe(Minilog.suggest).pipe(Minilog.backends.console.formatClean).pipe(Minilog.backends.console)
+  logger = Minilog('dropbox-store')
 
  
 class DropBoxStore extends StoreBase
@@ -19,7 +29,6 @@ class DropBoxStore extends StoreBase
     options = options or {}
     defaults = 
       name:"Dropbox"
-      type:"DropboxStore"
       description: "Store to the Dropbox Cloud based storage: requires login"
       rootUri:"/"
       isDataDumpAllowed: false

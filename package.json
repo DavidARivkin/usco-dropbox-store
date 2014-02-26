@@ -1,10 +1,10 @@
 {
-  "name": "usco-dropboxstore",
+  "name": "usco-dropbox-store",
   "version": "0.0.1",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "http://github.com/usco/usco-dropboxstore.git"
+    "url": "http://github.com/usco/usco-dropbox-store.git"
   },
   "directories": {
     "lib": "./lib"
@@ -13,20 +13,18 @@
     "q": "~0.9.6",
     "coffee-script": "~1.6.3",
     "mime": "~1.2.11",
-    "dropbox": "~0.10.1"
+    "dropbox": "~0.10.2"
   },
   "devDependencies": {
     "jasmine-node": "1.10.2",
     "jasmine-phantom-node": "",
-    "browserify": "git://github.com/kaosat-dev/node-browserify.git",
-    "coffeeify-redux": "0.1.0",
-    "watchify": "0.1.0",
-    "beefy": "",
-    "usco-kernel": "git://github.com/usco/usco-kernel#master",
-    "kew": "~0.1.7"
+    "grunt": "^0.4.2",
+    "grunt-browserify": "^1.3.1",
+    "browserify": "^3.30.2",
+    "coffeeify": "^0.6.0",
+    "grunt-bump": "0.0.13"
   },
   "scripts": {
     "test": "jasmine-node --verbose --color --coffee specs/",
-    "start": "beefy --live src/kernel.js:coffeescad-kernel.js 9080 -- --extension '.coffee' -t coffeeify-redux & watchify src/kernel.js -o coffeescad-kernel.js -t coffeeify-redux --extension '.coffee' & jasmine-node specs/ --coffee --autotest --watch src"
   }
 }
