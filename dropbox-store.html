@@ -1,0 +1,61 @@
+<link rel="import" href="../polymer/polymer.html"> 
+<link rel="import" href="../polymer-localstorage/polymer-localstorage.html">
+<script src="lib/dropbox.min.js"> </script>
+<script src="lib/dropbox-store.js"> </script>
+
+
+<polymer-element name="dropbox-store" extends="usco-store-base" attributes="loggedIn authOk">
+  <template>
+    <polymer-localstorage name="dropbox-store-loggedIn"   value="{{store.loggedIn}}"></polymer-localstorage>
+  </template>
+  <script>
+    Polymer('dropbox-store', {
+      //properties
+      /*get loggedIn() {
+        if(!(this.store)) return false;
+        return this.store.loggedIn;
+      },
+      set loggedIn(value)
+      {
+        this.store.loggedIn = value;
+      },*/
+      observe: {
+        'store.loggedIn': 'loggedInChanged',
+      },
+      //lifecycle callbacks
+      created:function()
+      {
+        this.super();
+        DropboxStore = require( "dropbox-store" );
+        this.store = new DropboxStore();
+        this.store.timeout = this.timeout;
+      },
+      enteredView:function()
+      {
+        this.super();
+        this.async(this.store.authCheck,null,200);
+        
+      },
+      //public api
+      login:function()
+      {
+        return this.store.login();
+      },
+      logout:function()
+      {
+        return this.store.logout();
+      },
+      //change handlers
+      loggedInChanged:function()
+      {
+        console.log("logginChanged",this.store.loggedIn, this.store);
+        /*if(this.store.loggedIn)
+        {
+          this.fire("loggedIn" )
+        }else{
+           this.fire("loggedOut" )
+        }*/
+      }
+    });
+  </script>
+</polymer-element>
