@@ -1,14 +1,12 @@
 'use strict'
 detectEnv = require "composite-detect"
 Q = require "q"
-fs = require "fs"
 path = require "path"
-mime = require "mime"
-dropbox = require 'dropbox'
+#mime = require "mime"
 
-StoreBase = require 'usco-kernel/src/stores/storeBase'
-utils = require 'usco-kernel/src/utils'
-merge = utils.merge
+#StoreBase = require 'usco-kernel/src/stores/storeBase'
+#utils = require 'usco-kernel/src/utils'
+#merge = utils.merge
 
 if detectEnv.isModule
   Minilog=require("minilog")
@@ -17,13 +15,15 @@ if detectEnv.isModule
 
 if detectEnv.isNode
   Minilog.pipe(Minilog.suggest).pipe(Minilog.backends.console.formatColor).pipe(Minilog.backends.console)
+  Dropbox = require("dropbox");
 
 if detectEnv.isBrowser
   Minilog.pipe(Minilog.suggest).pipe(Minilog.backends.console.formatClean).pipe(Minilog.backends.console)
   logger = Minilog('dropbox-store')
+  Dropbox = window.Dropbox
 
  
-class DropBoxStore extends StoreBase
+class DropBoxStore #extends StoreBase
   
   constructor:(options)->
     options = options or {}
@@ -34,40 +34,45 @@ class DropBoxStore extends StoreBase
       isDataDumpAllowed: false
       isLoginRequired:true
       showPaths:false
-    options = merge defaults, options
-    super options
+    #options = merge defaults, options
+    #super options
+    
+    @loggedIn = false
+    if detectEnv.isNode
+      @client = new Dropbox.Client
+        key: "your-key-here",
+        secret: "your-secret-here"
+    else
+      @client = new Dropbox.Client
+        key: "z6yrlcnlyrinlp6"
+        sandbox: true
+      @client.authDriver new Dropbox.AuthDriver.Redirect(rememberUser:true, useQuery:true)
     
   login:=>
-    try
-      onLoginSucceeded=()=>
-        localStorage.setItem("dropboxCon-auth",true)
-        @loggedIn = true
-        @_dispatchEvent("DropboxStore:loggedIn")
-        
-      onLoginFailed=(error)=>
-        throw error
-        
-      loginPromise = @fs.authentificate()
-      $.when(loginPromise).done(onLoginSucceeded)
-                          .fail(onLoginFailed)
-    catch error
-      @_dispatchEvent("DropboxStore:loginFailed")
+    deferred = Q.defer()
+      
+    @client.authenticate (error, client)=>
+      if error?
+        logger.error("dropbox-store failed to logged in",error)
+        return @formatError(error, deferred)
+      logger.info("dropbox-store logged in")
+      @loggedIn = true
+      #localStorage.setItem("dropbox-store-loggedIn",true)
+      deferred.resolve( @ ) 
+
+    return deferred
       
   logout:=>
-    try
-      onLogoutSucceeded=()=>
-        localStorage.removeItem("dropboxCon-auth")
-        @loggedIn = false
-        @_dispatchEvent("DropboxStore:loggedOut")
-      onLoginFailed=(error)=>
-        throw error
+    deferred = Q.defer()
+    @client.signOut (error)=>
+      if error?
+        return @formatError(error, deferred)
+      logger.info("dropbox-store logged out")
+      @loggedIn = false
+      deferred.resolve( @ )
+      
+    return deferred
         
-      logoutPromise = @fs.signOut()
-      $.when(logoutPromise).done(onLogoutSucceeded)
-                          .fail(onLogoutFailed)
-    
-    catch error
-      @_dispatchEvent("DropboxStore:logoutFailed")
   
   ###-------------------file/folder manipulation methods----------------###  
   
@@ -79,40 +84,73 @@ class DropBoxStore extends StoreBase
   list:( uri )=>
     deferred = Q.defer()
     
-    return deferred.promise
+    @client.readdir uri, (error, entries, folderStat, entriesStats)=>
+      if error
+        return @formatError(error, deferred)
+      deferred.resolve(entries, folderStat, entriesStats)
+    
+    return deferred
   
   ###*
   * read the file at the given uri, return its content
   * @param {String} uri absolute uri of the file whose content we want
   * @param {String} encoding the encoding used to read the file
-  * @return {Object} a promise, that gets resolved with the content of file at the given uri
+  * @return {Object} a defferred, that gets resolved with the content of file at the given uri
   ###
   read:( uri , encoding )=>
     encoding = encoding or 'utf8'
     deferred = Q.defer()
     
     options = options or {}
-    @_dbClient.readFile path,options, (error, data)=>
+    
+    ###
+    onProgress= ( event )->
+      if (event.lengthComputable)
+        percentComplete = (event.loaded/event.total)*100
+        logger.debug "percent", percentComplete
+        deferred.notify( {"loaded":percentComplete, "total":event.total} )
+    @client.onXhr.addListener(onProgress)
+    @client.onXhr.removeListener(onProgress)
+    var xhrListener = function(dbXhr) {
+  dbXhr.xhr.upload.onprogress("progress", function(event) {
+    // event.loaded bytes received, event.total bytes must be received
+    reportProgress(event.loaded, event.total);
+  });
+  return true;  // otherwise, the XMLHttpRequest is canceled
+};
+client.onXhr.addListener(xhrListener);
+    
+    ###
+    
+    @client.readFile path, options, (error, data)=>
       if error
-        @_formatError( error, deferred )
+        return @formatError( error, deferred)
       deferred.resolve( data )
     
-    return deferred.promise
+    return deferred
   
   ###*
   * write the file at the given uri, with the given data, using given mimetype
   * @param {String} uri absolute uri of the file we want to write (if the intermediate directories do not exist, they get created)
   * @param {String} data the content we want to write to the file
   * @param {String} type the mime-type to use
-  * @return {Object} a promise, that gets resolved with "true" if writing to the file was a success, the error in case of failure
+  * @return {Object} a deferred, that gets resolved with "true" if writing to the file was a success, the error in case of failure
   ###
-  write:( uri, data, type, overwrite )=>
+  write:( uri, content, type, overwrite )=>
     type = type or 'utf8' #mime.charsets.lookup()
     overwrite = overwrite or true
     deferred = Q.defer()
     
+    @client.writeFile uri, content, options, (error, stat) =>
+      if error
+        return @formatError(error, deferred)
+      
+      @logger.debug "writen file #{name} with content #{content}"
+      @logger.debug  ("File saved as revision " + stat.versionTag)
+      deferred.resolve( content )
+      
+    return deferred
     
-    return deferred.promise
   
   ###*
   * move/rename the item at first uri to the second uri
@@ -125,263 +163,86 @@ class DropBoxStore extends StoreBase
     overwrite = overwrite or false
     deferred = Q.defer()
     
-    @_dbClient.move fromPath, toPath, (error)=>
+    @client.move fromPath, toPath, (error)=>
       if error
-        @_formatError(error, deferred)
+        return @formatError(error, deferred)
       deferred.resolve( true )
     
-    return deferred.promise
-  
-  
-  delete:( uri )=>
-    deferred = Q.defer()
-    
-    return deferred.promise
-    
-  ###-------------------Helpers----------------###
+    return deferred
   
   ###*
-  * checks if specified uri is the uri of a project: the folder needs to exist, and to contain a file with the same name as the folder + one of the "code extensions"
-  * to qualitfy
-  * @param {String} uri absolute uri of the path to check
-  * @return {Object} "true" if given uri is a project, "false" otherwise
+  * delete the file or folder at the given uri
+  * @param {String} uri absolute uri of the file we want to write (if the intermediate directories do not exist, they get created)
+  * @return {Object} a deferred, that gets resolved with "true" if deleting the file was a success, the error in case of failure
   ###
-  isProject:( uri )=>
-    if fs.existsSync( uri )
-      stats = fs.statSync( uri )
-      if stats.isDirectory()
-        codeExtensions = ["coffee", "litcoffee", "js", "usco", "ultishape"] #TODO: REDUNDANT with modules! where to put this
-        for ext in codeExtensions
-          baseName = path.basename( uri )
-          mainFile = path.join( uri, baseName + "." + ext )
-          if fs.existsSync( mainFile )
-            return true
-    return false
-  
-  
-  
-  mv: (fromPath, toPath)=>
-      d = $.Deferred()
-      @client.move fromPath, toPath, (error)=>
-        if error
-          @formatError(error,d)
-        d.resolve()
-      return d.promise()
-  
-  #####---------------------- 
-  setup:()->
-    super
+  delete:( uri )=>
+    deferred = Q.defer()
+    @client.remove uri, (error, userInfo)=>
+      if error
+        return @formatError(error, deferred)
+      logger.debug "removed #{uri}"
+      
+      deferred.resolve( @ )
+    return deferred    
     
-    getURLParameter=(paramName)->
-      searchString = window.location.search.substring(1)
-      i = undefined
-      val = undefined
-      params = searchString.split("&")
-      i = 0
-      while i < params.length
-        val = params[i].split("=")
-        return unescape(val[1])  if val[0] is paramName
-        i++
-      null
-    urlAuthOk = getURLParameter("_dropboxjs_scope")
-    authOk = localStorage.getItem("dropboxCon-auth")
-    if urlAuthOk?
-      @login()
-      appBaseUrl = window.location.protocol + '//' + window.location.host + window.location.pathname
-      window.history.replaceState('', '', appBaseUrl)     
-    else
-      if authOk?
+  ###-------------------Helpers----------------###
+  formatError:(error, deferred)->
+    switch error.status
+      when 401
+        # If you're using dropbox.js, the only cause behind this error is that
+        # the user token expired.
+        # Get the user through the authentication flow again.
+        error = new Error("Dropbox token expired") 
+      when 404 
+        # The file or folder you tried to access is not in the user's Dropbox.
+        # Handling this error is specific to your application.
+        error = new Error("Failed to find the specified file or folder") 
+      when 507 
+        # The user is over their Dropbox quota.
+        # Tell them their Dropbox is full. Refreshing the page won't help.
+        error = new Error("Dropbox quota exceeded") 
+      when 503 
+        # Too many API requests. Tell the user to try again later.
+        # Long-term, optimize your code to use fewer API calls.
+        error = new Error("Dropbox: too many requests") 
+      when 400  
+        error = new Error("Dropbox: bad input parameter") 
+        # Bad input parameter
+      when 403  
+        # Bad OAuth request.
+        error = new Error("Dropbox: bad oauth request") 
+      when 405 
+        # Request method not expected
+        error = new Error("Dropbox: unexpected request method") 
+      else
+        error = new Error("Dropbox: uknown error") 
+        # Caused by a bug in dropbox.js, in your application, or in Dropbox.
+        # Tell the user an error occurred, ask them to refresh the page.
+    deferred.reject(error)
+  
+  authCheck:()->
+      getURLParameter=(paramName)->
+        hash = window.location.hash
+        params = hash.split("&")
+        
+        i = 0
+        while i < params.length
+          val = params[i].split("=")
+          return unescape(val[1])  if val[0] is paramName
+          i++
+      urlAuthOk = getURLParameter("#access_token")
+      logger.debug "dropboxStore got redirect param #{urlAuthOk}"
+      authOk = localStorage.getItem("dropbox-store-loggedIn")
+      logger.debug "dropboxStore got localstorage Param #{authOk}"
+
+      if urlAuthOk?
+        #appBaseUrl = window.location.protocol + '//' + window.location.host + window.location.pathname
+        #window.history.replaceState('', '', appBaseUrl)   
+        @login()  
+      else if authOk?
         @login()
-  
-  listDir:( uri )=>
-    uri = if uri? then @fs.absPath( uri, @rootUri ) else @rootUri
-    d = $.Deferred()
-    
-    addFileInfo = (files, folderStats, filesStats)=>
-      results = []
-      for file, index in files
-        filePath = @fs.join([uri, file])
-        result = {
-          name: file,
-          path : filePath
-        }
-        if filesStats[index].isFolder
-          result.type = 'folder'
-        else
-          result.type = 'file'
-        results.push( result )
-      d.resolve(results)
-    
-    @fs.readdir( uri ).done(addFileInfo)
-    return d
-  
-  saveProject:( project, path )=> 
-    super
-    
-    #@fs.mkdir(projectUri)
-    
-    for index, file of project.getFiles()
-      fileName = file.name
-      filePath = @fs.join([projectUri, fileName])
-      ext = fileName.split('.').pop()
-      content = file.content
-      if ext == "png"
-        #save thumbnail
-        if content != ""
-          dataURIComponents = content.split(',')
-          mimeString = dataURIComponents[0].split(':')[1].split(';')[0]
-          if(dataURIComponents[0].indexOf('base64') != -1)
-            console.log "base64 v1"
-            data =  atob(dataURIComponents[1])
-            array = []
-            for i in [0...data.length]
-              array.push(data.charCodeAt(i))
-            content = new Blob([new Uint8Array(array)], {type: 'image/png'})
-          else
-            console.log "other v2"
-            byteString = unescape(dataURIComponents[1])
-            length = byteString.length
-            ab = new ArrayBuffer(length)
-            ua = new Uint8Array(ab)
-            for i in [0...length]
-              ua[i] = byteString.charCodeAt(i)
-      @fs.writefile(filePath, content, {toJson:false})
-      #file.trigger("save")
-    
-    @_dispatchEvent( "project:saved",project )
-  
-  loadProject:( projectUri , silent=false)=>
-    super
-    
-    projectName = projectUri.split(@fs.sep).pop()
-    #projectUri = @fs.join([@rootUri, projectUri])
-    project = new Project
-        name : projectName
-    project.dataStore = @
-    
-    d = $.Deferred()
-    
-    onProjectLoaded=()=>
-      project._clearFlags()
-      if not silent
-        @_dispatchEvent("project:loaded",project)
-      d.resolve(project)
-    
-    loadFiles=( filesList ) =>
-      promises = []
-      for fileName in filesList
-        filePath = @fs.join( [projectUri, fileName] )
-        promises.push( @fs.readfile( filePath ) )
-      $.when.apply($, promises).done ()=>
-        data = arguments
-        for fileName, index in filesList #todo remove this second iteration
-          project.addFile 
-            name: fileName
-            content: data[index]
-        onProjectLoaded()
-    
-    @fs.readdir( projectUri ).done(loadFiles)
-    return d
-  
-  deleteProject:( projectUri )=>
-    #projectPath = @fs.join([@rootUri, projectName])
-    #index = @projectsList.indexOf(projectName)
-    #@projectsList.splice(index, 1)
-    return @fs.rmdir( projectUri )
-  
-  renameProject:(oldName, newName)=>
-    #move /rename project and its main file
-    #index = @projectsList.indexOf(oldName)
-    #@projectsList.splice(index, 1)
-    #@projectsList.push(newName)      
-    return @fs.mv(oldName, newName).done(@fs.mv("/#{newName}/#{oldName}.coffee","/#{newName}/#{newName}.coffee"))
-  
-  getProject:(projectName)=>
-    #console.log "locating #{projectName} in @projectsList"
-    #console.log @projectsList
-    if projectName in @projectsList
-      return @loadProject(projectName,true)
-    else
-      return null
-  
-  #helpers
-  projectExists: ( uri )=>
-    #checks if specified project /project uri exists
-    uri = @fs.absPath( uri, @rootUri )
-    return @fs.exists( uri )
-  
-  getThumbNail:(projectName)=>
-    myDeferred = $.Deferred()
-    deferred = @store._readFile( "/#{projectName}/.thumbnail.png",{arrayBuffer:true})
-    
-    parseBase64Png=( rawData)->
-      #convert binary png to base64
-      bytes = new Uint8Array(rawData)
-      data = ''
-      for i in [0...bytes.length]
-        data += String.fromCharCode(bytes[i])
-      data =   btoa(data)
-      #crashes
-      #data = btoa(String.fromCharCode.apply(null, ))
-      base64src='data:image/png;base64,'+data
-      myDeferred.resolve(base64src)
-
-    deferred.done(parseBase64Png)
-    return myDeferred
-  
-  deleteFile:( filePath )=>
-    @fs.rmfile( filePath )
-  
-  _sourceFetchHandler:([store, projectName, path, deferred])=>
-    #This method handles project/file content requests and returns appropriate data
-    if store != "dropbox"
-      return null
-    console.log "handler recieved #{store}/#{projectName}/#{path}"
-    result = ""
-    if not projectName? and path?
-      shortName = path
-      #console.log "proj"
-      #console.log @project
-      file = @project.rootFolder.get(shortName)
-      result = file.content
-      result = "\n#{result}\n"
-    else if projectName? and not path?
-      console.log "will fetch project #{projectName}'s namespace"
-      project = @getProject(projectName)
-      console.log project
-      namespaced = {}
-      for index, file of project.rootFolder.models
-        namespaced[file.name]=file.content
-        
-      namespaced = "#{projectName}={"
-      for index, file of project.rootFolder.models
-        namespaced += "#{file.name}:'#{file.content}'"
-      namespaced+= "}"
-      #namespaced = "#{projectName}="+JSON.stringify(namespaced)
-      #namespaced = """#{projectName}=#{namespaced}"""
-      result = namespaced
-      
-    else if projectName? and path?
-      console.log "will fetch #{path} from #{projectName}"
-      getContent=(project) =>
-        #cache for faster access: TODO: clear cache
-        @cachedProjects[projectName]=project
-        file = project.rootFolder.get(path)
-        
-        #now we replace all "local" (internal to the project includes) with full path includes
-        result = file.content
-        result = result.replace /(?!\s*?#)(?:\s*?include\s*?)(?:\(?\"([\w\//:'%~+#-.*]+)\"\)?)/g, (match,matchInner) =>
-          includeFull = matchInner.toString()
-          return """\ninclude("dropbox:#{projectName}/#{includeFull}")\n"""
-          
-        result = "\n#{result}\n"
-        deferred.resolve(result)
-      
-      if not (projectName of @cachedProjects)
-        @loadProject(projectName,true).done(getContent)
-      else 
-        getContent(@cachedProjects[projectName])
-
-    return result
+      else
+        console.log("argh")
+        @loggedIn = false
     
 module.exports = DropBoxStore

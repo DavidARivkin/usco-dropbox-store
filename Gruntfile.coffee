@@ -11,6 +11,7 @@ module.exports = (grunt) ->
           transform: ["coffeeify"]
           external: ["composite-detect","q","minilog"]
           alias: ["./src/dropbox-store.coffee:dropbox-store"]
+          ignore:["dropbox"]
           
     bump:
       options:
