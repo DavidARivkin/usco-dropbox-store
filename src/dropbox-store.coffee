@@ -141,12 +141,14 @@ client.onXhr.addListener(xhrListener);
     overwrite = overwrite or true
     deferred = Q.defer()
     
-    @client.writeFile uri, content, options, (error, stat) =>
+    logger.debug "writing file #{uri} with content #{content}"
+    
+    @client.writeFile uri, content, (error, stat) =>
       if error
         return @formatError(error, deferred)
       
-      @logger.debug "writen file #{name} with content #{content}"
-      @logger.debug  ("File saved as revision " + stat.versionTag)
+      logger.debug "writen file #{uri} with content #{content}"
+      logger.debug  ("File saved as revision " + stat.versionTag)
       deferred.resolve( content )
       
     return deferred
