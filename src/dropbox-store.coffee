@@ -70,12 +70,9 @@ class DropBoxStore #extends StoreBase
       logger.info("dropbox-store logged out")
       @loggedIn = false
       deferred.resolve( @ )
-      
     return deferred
         
-  
   ###-------------------file/folder manipulation methods----------------###  
-  
   ###*
   * list all elements inside the given uri (non recursive)
   * @param {String} uri the folder whose content we want to list
@@ -122,8 +119,8 @@ client.onXhr.addListener(xhrListener);
     
     ###
     
-    @client.readFile path, options, (error, data)=>
-      if error
+    @client.readFile uri, options, (error, data)=>
+      if error?
         return @formatError( error, deferred)
       deferred.resolve( data )
     
@@ -140,10 +137,11 @@ client.onXhr.addListener(xhrListener);
     type = type or 'utf8' #mime.charsets.lookup()
     overwrite = overwrite or true
     deferred = Q.defer()
+    options = {}
     
     logger.debug "writing file #{uri} with content #{content}"
     
-    @client.writeFile uri, content, (error, stat) =>
+    @client.writeFile uri, content, options, (error, stat) =>
       if error
         return @formatError(error, deferred)
       
@@ -244,7 +242,6 @@ client.onXhr.addListener(xhrListener);
       else if authOk?
         @login()
       else
-        console.log("argh")
         @loggedIn = false
     
 module.exports = DropBoxStore
