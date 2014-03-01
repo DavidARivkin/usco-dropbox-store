@@ -89,6 +89,19 @@ class DropBoxStore #extends StoreBase
     return deferred
   
   ###*
+  * create a directory at the given uri
+  * @param {String} uri the folder to create
+  * @return {Object} a promise, that gets resolved with the current instance, for chaining
+  ###
+  mkdir:( uri )=>
+    deferred = Q.defer()
+    @client.mkdir uri, (error, stats)=>
+      if error?
+        return @formatError( error, deferred )
+      deferred.resolve( @ )
+    return deferred
+    
+  ###*
   * read the file at the given uri, return its content
   * @param {String} uri absolute uri of the file whose content we want
   * @param {String} encoding the encoding used to read the file
@@ -142,7 +155,7 @@ client.onXhr.addListener(xhrListener);
     logger.debug "writing file #{uri} with content #{content}"
     
     @client.writeFile uri, content, options, (error, stat) =>
-      if error
+      if error?
         return @formatError(error, deferred)
       
       logger.debug "writen file #{uri} with content #{content}"
@@ -163,10 +176,10 @@ client.onXhr.addListener(xhrListener);
     overwrite = overwrite or false
     deferred = Q.defer()
     
-    @client.move fromPath, toPath, (error)=>
-      if error
+    @client.move uri, newUri, (error)=>
+      if error?
         return @formatError(error, deferred)
-      deferred.resolve( true )
+      deferred.resolve( @ )
     
     return deferred
   
@@ -193,6 +206,8 @@ client.onXhr.addListener(xhrListener);
         # the user token expired.
         # Get the user through the authentication flow again.
         error = new Error("Dropbox token expired") 
+      when 403
+        error = new Error(error.responseText) 
       when 404 
         # The file or folder you tried to access is not in the user's Dropbox.
         # Handling this error is specific to your application.
@@ -218,6 +233,7 @@ client.onXhr.addListener(xhrListener);
         error = new Error("Dropbox: uknown error") 
         # Caused by a bug in dropbox.js, in your application, or in Dropbox.
         # Tell the user an error occurred, ask them to refresh the page.
+    logger.error(error.message)
     deferred.reject(error)
   
   authCheck:()->
