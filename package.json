@@ -10,12 +10,13 @@
     "lib": "./lib"
   },
   "dependencies": {
+    "composite-detect": "0.0.3",
     "q": "~0.9.6",
-    "coffee-script": "~1.6.3",
     "mime": "~1.2.11",
     "dropbox": "~0.10.2"
   },
   "devDependencies": {
+    "coffee-script": "~1.6.3",
     "jasmine-node": "1.10.2",
     "jasmine-phantom-node": "",
     "grunt": "^0.4.2",

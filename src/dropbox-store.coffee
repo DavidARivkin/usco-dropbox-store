@@ -201,6 +201,9 @@ client.onXhr.addListener(xhrListener);
   ###-------------------Helpers----------------###
   formatError:(error, deferred)->
     switch error.status
+      when "Authorization error"
+       error = new Error("Authorization error") 
+        
       when 401
         # If you're using dropbox.js, the only cause behind this error is that
         # the user token expired.
